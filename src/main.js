@@ -882,10 +882,49 @@ function passportQuery() {
   }).join("&");
 }
 
+function sodaQrUrl(token, data) {
+  return first(data && data.qrcode_index_url, data && data.web_url,
+    "https://bff-pc.qishui.com/light/invoke/scan_login?token="
+      + encodeURIComponent(token) + "&os=Windows");
+}
+
+function sodaAppUrl(qrUrl) {
+  return "snssdk1128://webview?url=" + encodeURIComponent(qrUrl);
+}
+
+function sodaBegin(methodId) {
+  return call("http.request", {
+    url: "https://api.qishui.com/passport/web/get_qrcode/?" + passportQuery()
+      + "&next=" + encodeURIComponent("https://api.qishui.com")
+      + "&need_logo=false&need_short_url=false&is_frontier=true",
+    method: "GET",
+    headers: { "User-Agent": UA_PASSPORT, "Accept": "application/json, text/javascript" },
+    timeoutMs: 15000
+  }).then(function (response) {
+    var body = JSON.parse(response.body || "{}");
+    var data = body.data || {};
+    var token = str(data.token);
+    if (!token) throw new Error(body.message || "未能获取登录二维码");
+    var cookies = mergeCookies({}, response.setCookies);
+    var qrUrl = sodaQrUrl(token, data);
+    return call("crypto.digest", { algorithm: "MD5", data: token, dataEncoding: "utf8", outputEncoding: "hex" }).then(function (hex) {
+      return call("storage.put", { key: "qr" + hex, value: JSON.stringify(cookies) }).then(function () {
+        return {
+          id: token, methodId: methodId, status: "waiting",
+          qrContent: qrUrl,
+          appUrl: sodaAppUrl(qrUrl),
+          appLabel: "打开抖音",
+          expiresAtMs: Date.now() + 5 * 60 * 1000
+        };
+      });
+    });
+  });
+}
+
 function login(args) {
   switch (args && args.operation) {
-    case "methods":
-      return [{
+    case "methods": {
+      var methods = [{
         id: "qr", type: "qr", label: "扫码登录",
         instructions: "打开汽水音乐 App 扫描二维码。若提示短信验证，切换到 Cookie 只填验证码。"
       }, {
@@ -893,32 +932,20 @@ function login(args) {
         instructions: "可粘贴含 sessionid 的完整 Cookie。扫码后若要短信验证，这里只填 6 位验证码。",
         credentialLabel: "Cookie 或短信验证码"
       }];
-    case "begin":
-      if (args.methodId !== "qr") throw new Error("该登录方式不需要创建挑战");
-      return call("http.request", {
-        url: "https://api.qishui.com/passport/web/get_qrcode/?" + passportQuery()
-          + "&next=" + encodeURIComponent("https://api.qishui.com")
-          + "&need_logo=false&need_short_url=false&is_frontier=true",
-        method: "GET",
-        headers: { "User-Agent": UA_PASSPORT, "Accept": "application/json, text/javascript" },
-        timeoutMs: 15000
-      }).then(function (response) {
-        var body = JSON.parse(response.body || "{}");
-        var data = body.data || {};
-        var token = str(data.token);
-        if (!token) throw new Error(body.message || "未能获取登录二维码");
-        var cookies = mergeCookies({}, response.setCookies);
-        return call("crypto.digest", { algorithm: "MD5", data: token, dataEncoding: "utf8", outputEncoding: "hex" }).then(function (hex) {
-          return call("storage.put", { key: "qr" + hex, value: JSON.stringify(cookies) }).then(function () {
-            return {
-              id: token, methodId: "qr", status: "waiting",
-              qrContent: first(data.qrcode_index_url, data.web_url,
-                "https://bff-pc.qishui.com/light/invoke/scan_login?token=" + encodeURIComponent(token) + "&os=Windows"),
-              expiresAtMs: Date.now() + 5 * 60 * 1000
-            };
-          });
+      if (args && args.platform === "android") {
+        methods.unshift({
+          id: "douyin", type: "app", label: "抖音一键登录",
+          appLabel: "打开抖音",
+          instructions: "将跳转到抖音 App 确认登录汽水账号。请先安装抖音。"
         });
-      });
+      }
+      return methods;
+    }
+    case "begin":
+      if (args.methodId !== "qr" && args.methodId !== "douyin") {
+        throw new Error("该登录方式不需要创建挑战");
+      }
+      return sodaBegin(args.methodId);
     case "poll": {
       var token = str(args.challengeId);
       if (!token) throw new Error("缺少登录挑战 ID");
