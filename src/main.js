@@ -709,12 +709,7 @@ function passportPost(url, form, cookies) {
   return call("http.request", {
     url: url,
     method: "POST",
-    headers: {
-      "User-Agent": UA_PASSPORT,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Accept": "application/json, text/plain, */*",
-      Cookie: cookieHeader(cookies || {})
-    },
+    headers: passportHeaders(cookies),
     body: form,
     timeoutMs: 20000
   });
@@ -882,6 +877,18 @@ function passportQuery() {
   }).join("&");
 }
 
+function passportHeaders(cookies) {
+  var headers = {
+    "User-Agent": UA_PASSPORT,
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Accept": "application/json, text/javascript",
+    "Cookie": cookieHeader(cookies || {})
+  };
+  var csrf = str(cookies && cookies.passport_csrf_token);
+  if (csrf) headers["x-tt-passport-csrf-token"] = csrf;
+  return headers;
+}
+
 function sodaQrUrl(token, data) {
   return first(data && data.qrcode_index_url, data && data.web_url,
     "https://bff-pc.qishui.com/light/invoke/scan_login?token="
@@ -928,6 +935,12 @@ function login(args) {
         id: "qr", type: "qr", label: "扫码登录",
         instructions: "打开汽水音乐 App 扫描二维码。若提示短信验证，切换到 Cookie 只填验证码。"
       }, {
+        id: "web", type: "web", label: "网页登录",
+        instructions: "打开抖音网页登录。成功后会自动读取 sessionid 并验证汽水账号。可用另一台设备扫网页上的码，或用账号密码。",
+        webUrl: "https://www.douyin.com/user/self",
+        cookieUrl: "https://www.douyin.com",
+        credentialCookieName: "sessionid"
+      }, {
         id: "cookie", type: "credential", label: "Cookie / 验证码",
         instructions: "可粘贴含 sessionid 的完整 Cookie。扫码后若要短信验证，这里只填 6 位验证码。",
         credentialLabel: "Cookie 或短信验证码"
@@ -958,11 +971,7 @@ function login(args) {
         return call("http.request", {
           url: "https://api.qishui.com/passport/web/check_qrconnect/?" + passportQuery(),
           method: "POST",
-          headers: {
-            "User-Agent": UA_PASSPORT,
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Cookie": cookieHeader(pending)
-          },
+          headers: passportHeaders(pending),
           body: form,
           timeoutMs: 20000
         }).then(function (response) {

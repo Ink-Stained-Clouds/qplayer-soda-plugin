@@ -23,7 +23,8 @@
   ],
   "permissions": [
     "network",
-    "credentials"
+    "credentials",
+    "webAuth"
   ],
   "networkDomains": [
     "api.qishui.com",
